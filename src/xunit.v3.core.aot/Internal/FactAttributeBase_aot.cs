@@ -37,6 +37,15 @@ public abstract class FactAttributeBase : Attribute
 	public bool Explicit { get; set; }
 
 	/// <summary>
+	/// Gets or sets an optional explanation for excluding this test when an explicit test is not selected.
+	/// </summary>
+	/// <remarks>
+	/// This value does not change test selection or execution. It is currently used by the Microsoft Testing
+	/// Platform integration when reporting a test that was not run because it was explicit.
+	/// </remarks>
+	public string? ExplicitReason { get; set; }
+
+	/// <summary>
 	/// Gets the skip reason for the test. When <see langword="null"/> is returned, the test is
 	/// not skipped.
 	/// </summary>

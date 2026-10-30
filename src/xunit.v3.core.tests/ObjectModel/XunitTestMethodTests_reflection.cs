@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Xunit;
 using Xunit.Sdk;
 using Xunit.v3;
@@ -106,6 +107,41 @@ public class XunitTestMethodTests
 	}
 
 	[Fact]
+	public void ExplicitReasonIsReturnedAsATraitWhenMethodIsNotExplicit()
+	{
+		var testMethod = TestData.XunitTestMethod<ExplicitReasonClassUnderTest>(nameof(ExplicitReasonClassUnderTest.OrdinaryMethod));
+
+		Assert.Equal("Row may opt in", Assert.Single(testMethod.Traits["xunit.explicit-reason"]));
+	}
+
+	[Fact]
+	public void ExplicitReasonIsReturnedAsATraitFromDerivedFactAttribute()
+	{
+		var testMethod = TestData.XunitTestMethod<ExplicitReasonClassUnderTest>(nameof(ExplicitReasonClassUnderTest.DerivedFactMethod));
+
+		Assert.Equal("Uses a database", Assert.Single(testMethod.Traits["xunit.explicit-reason"]));
+	}
+
+	[Fact]
+	public void ExplicitReasonMergesCaseInsensitiveTraitKeys()
+	{
+		var testMethod = TestData.XunitTestMethod<ExplicitReasonClassUnderTest>(nameof(ExplicitReasonClassUnderTest.ReasonWithTraitCollision));
+
+		Assert.Equal(
+			["Additional metadata", "Requires a live database"],
+			testMethod.Traits["xunit.explicit-reason"].OrderBy(value => value)
+		);
+	}
+
+	[Fact]
+	public void ExplicitReasonIsAvailableOnAnInheritedFactMethod()
+	{
+		var testMethod = TestData.XunitTestMethod<DerivedExplicitReasonClassUnderTest>(nameof(BaseExplicitReasonClassUnderTest.InheritedMethod));
+
+		Assert.Equal("Inherited method reason", Assert.Single(testMethod.Traits["xunit.explicit-reason"]));
+	}
+
+	[Fact]
 	public void Serialization()
 	{
 		// We can't use the XunitTestMethod backed by mocks because they don't serialize, so we'll create
@@ -170,4 +206,34 @@ public class XunitTestMethodTests
 	class BeforeAfterOnClass : BeforeAfterTestAttribute { }
 	class BeforeAfterOnCollection : BeforeAfterTestAttribute { }
 	class BeforeAfterOnMethod : BeforeAfterTestAttribute { }
+
+	class ExplicitReasonClassUnderTest
+	{
+		[Fact(Explicit = false, ExplicitReason = "Row may opt in")]
+		public void OrdinaryMethod() { }
+
+		[DatabaseFact]
+		public void DerivedFactMethod() { }
+
+		[Fact(ExplicitReason = "Requires a live database")]
+		[Trait("XUNIT.EXPLICIT-REASON", "Additional metadata")]
+		public void ReasonWithTraitCollision() { }
+	}
+
+	class BaseExplicitReasonClassUnderTest
+	{
+		[Fact(ExplicitReason = "Inherited method reason")]
+		public void InheritedMethod() { }
+	}
+
+	class DerivedExplicitReasonClassUnderTest : BaseExplicitReasonClassUnderTest { }
+
+	sealed class DatabaseFactAttribute : FactAttribute
+	{
+		public DatabaseFactAttribute(
+			[CallerFilePath] string? sourceFilePath = null,
+			[CallerLineNumber] int sourceLineNumber = -1) :
+				base(sourceFilePath, sourceLineNumber) =>
+					ExplicitReason = "Uses a database";
+	}
 }

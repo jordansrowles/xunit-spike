@@ -126,6 +126,138 @@ public static partial class Xunit3TheoryAcceptanceTests
 
 #if XUNIT_AOT
 		[Fact]
+		public static async ValueTask ExplicitReasonRemainsAvailableAcrossTheoryRowOverrides()
+#else
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitReasonRemainsAvailableAcrossTheoryRowOverrides(bool preEnumerateTheories)
+#endif
+		{
+#if XUNIT_AOT
+			var testMessages = await RunForResultsAsync("Xunit3TheoryAcceptanceTests+DataAttributeTests+ClassUnderTest_ExplicitReasonAcceptanceTests", ExplicitOption.Off);
+#else
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.Off);
+#endif
+
+			var passedTests = testMessages.OfType<TestPassedWithMetadata>().ToArray();
+			Assert.Equal(2, passedTests.Length);
+			Assert.All(passedTests, passed => Assert.Equal("Requires release infrastructure", Assert.Single(passed.Test.Traits["xunit.explicit-reason"])));
+
+			var notRun = Assert.Single(testMessages.OfType<TestNotRunWithMetadata>());
+			Assert.Contains("value: 2", notRun.Test.TestDisplayName);
+			Assert.Equal("Requires release infrastructure", Assert.Single(notRun.Test.Traits["xunit.explicit-reason"]));
+		}
+
+#if XUNIT_AOT
+		[Fact]
+		public static async ValueTask ExplicitOnlyDoesNotRunUnmarkedRowsWithAuthoredReason()
+#else
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitOnlyDoesNotRunUnmarkedRowsWithAuthoredReason(bool preEnumerateTheories)
+#endif
+		{
+#if XUNIT_AOT
+			var testMessages = await RunForResultsAsync("Xunit3TheoryAcceptanceTests+DataAttributeTests+ClassUnderTest_ExplicitReasonAcceptanceTests", ExplicitOption.Only);
+#else
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.Only);
+#endif
+
+			var passed = Assert.Single(testMessages.OfType<TestPassedWithMetadata>());
+			Assert.Contains("value: 2", passed.Test.TestDisplayName);
+			Assert.Equal("Requires release infrastructure", Assert.Single(passed.Test.Traits["xunit.explicit-reason"]));
+
+			var notRun = testMessages.OfType<TestNotRunWithMetadata>().ToArray();
+			Assert.Equal(2, notRun.Length);
+			Assert.All(notRun, test => Assert.Equal("Requires release infrastructure", Assert.Single(test.Test.Traits["xunit.explicit-reason"])));
+			Assert.DoesNotContain(notRun, test => test.Test.TestDisplayName.Contains("value: 2", StringComparison.Ordinal));
+		}
+
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitOnRunsAllRowsWithMethodReason(bool preEnumerateTheories)
+		{
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.On);
+
+			var passed = testMessages.OfType<TestPassedWithMetadata>().ToArray();
+			Assert.Equal(3, passed.Length);
+			Assert.All(passed, test => Assert.Equal("Requires release infrastructure", Assert.Single(test.Test.Traits["xunit.explicit-reason"])));
+			Assert.Empty(testMessages.OfType<TestFailedWithMetadata>());
+			Assert.Empty(testMessages.OfType<TestSkippedWithMetadata>());
+			Assert.Empty(testMessages.OfType<TestNotRunWithMetadata>());
+		}
+
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitMethodReasonHonoursFalseRowOverrideWhenOff(bool preEnumerateTheories)
+		{
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitTrueReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.Off);
+
+			var passed = Assert.Single(testMessages.OfType<TestPassedWithMetadata>());
+			Assert.Contains("value: 3", passed.Test.TestDisplayName);
+			Assert.Equal("The method is explicitly opted in", Assert.Single(passed.Test.Traits["xunit.explicit-reason"]));
+
+			var notRun = testMessages.OfType<TestNotRunWithMetadata>().ToArray();
+			Assert.Equal(2, notRun.Length);
+			Assert.All(notRun, test => Assert.Equal("The method is explicitly opted in", Assert.Single(test.Test.Traits["xunit.explicit-reason"])));
+			Assert.DoesNotContain(notRun, test => test.Test.TestDisplayName.Contains("value: 3", StringComparison.Ordinal));
+		}
+
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitOnlyHonoursFalseRowOverrideForReasonedMethod(bool preEnumerateTheories)
+		{
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitTrueReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.Only);
+
+			var passed = testMessages.OfType<TestPassedWithMetadata>().ToArray();
+			Assert.Equal(2, passed.Length);
+			Assert.Contains(passed, test => test.Test.TestDisplayName.Contains("value: 1", StringComparison.Ordinal));
+			Assert.Contains(passed, test => test.Test.TestDisplayName.Contains("value: 2", StringComparison.Ordinal));
+			Assert.All(passed, test => Assert.Equal("The method is explicitly opted in", Assert.Single(test.Test.Traits["xunit.explicit-reason"])));
+
+			var notRun = Assert.Single(testMessages.OfType<TestNotRunWithMetadata>());
+			Assert.Contains("value: 3", notRun.Test.TestDisplayName);
+			Assert.Equal("The method is explicitly opted in", Assert.Single(notRun.Test.Traits["xunit.explicit-reason"]));
+		}
+
+		[Theory]
+		[InlineData(true)]
+		[InlineData(false)]
+		public static async ValueTask ExplicitOnRunsAllRowsWithExplicitMethodReason(bool preEnumerateTheories)
+		{
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitTrueReasonAcceptanceTests), preEnumerateTheories, ExplicitOption.On);
+
+			var passed = testMessages.OfType<TestPassedWithMetadata>().ToArray();
+			Assert.Equal(3, passed.Length);
+			Assert.All(passed, test => Assert.Equal("The method is explicitly opted in", Assert.Single(test.Test.Traits["xunit.explicit-reason"])));
+			Assert.Empty(testMessages.OfType<TestFailedWithMetadata>());
+			Assert.Empty(testMessages.OfType<TestSkippedWithMetadata>());
+			Assert.Empty(testMessages.OfType<TestNotRunWithMetadata>());
+		}
+
+		[Fact]
+		public static async ValueTask ExplicitReasonDoesNotMaskSelectedFailure()
+		{
+#if XUNIT_AOT
+			var testMessages = await RunForResultsAsync("Xunit3TheoryAcceptanceTests+DataAttributeTests+ClassUnderTest_ExplicitFailureAcceptanceTests", explicitOption: ExplicitOption.On);
+#else
+			var testMessages = await RunForResultsAsync(typeof(ClassUnderTest_ExplicitFailureAcceptanceTests), explicitOption: ExplicitOption.On);
+#endif
+
+			var failed = Assert.Single(testMessages.OfType<TestFailedWithMetadata>());
+			Assert.Equal("Selected explicit test failed.", Assert.Single(failed.Messages));
+			Assert.Equal("Must retain the selected failure", Assert.Single(failed.Test.Traits["xunit.explicit-reason"]));
+			Assert.Empty(testMessages.OfType<TestSkippedWithMetadata>());
+			Assert.Empty(testMessages.OfType<TestNotRunWithMetadata>());
+		}
+
+#if XUNIT_AOT
+		[Fact]
 		public static async ValueTask LabelAcceptanceTests()
 #else
 		[Theory]

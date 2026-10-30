@@ -101,6 +101,13 @@ public static partial class ExtensibilityPointFactory
 				foreach (var kvp in traitAttribute.GetTraits())
 					result.AddOrGet(kvp.Key).Add(kvp.Value);
 
+			// Keep the authored reason available when a data row opts into explicitness
+			// even if the method itself is not explicit. Runtime reporting checks the
+			// effective test-row flag before using this trait.
+			foreach (var factAttribute in testMethod.GetCustomAttributes<FactAttribute>(inherit: true))
+				if (!string.IsNullOrWhiteSpace(factAttribute.ExplicitReason))
+					result.AddOrGet("xunit.explicit-reason").Add(factAttribute.ExplicitReason);
+
 			return result.ToReadOnly();
 		}
 		finally

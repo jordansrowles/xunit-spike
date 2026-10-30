@@ -342,6 +342,12 @@ public class TestPlatformExecutionMessageSink(
 		else
 			metadataCache.Set(testStarting);
 
+		string? explicitExclusionReason = null;
+		if (testMessage is ITestNotRun && testStarting is { Explicit: true }
+			&& testStarting.Traits.TryGetValue("xunit.explicit-reason", out var reasons)
+			&& reasons.Count == 1)
+			explicitExclusionReason = reasons.FirstOrDefault();
+
 		var result = new TestNode
 		{
 			Uid = testMessage.TestCaseUniqueID,
@@ -356,7 +362,10 @@ public class TestPlatformExecutionMessageSink(
 				FailureCause.Timeout => new TimeoutTestNodeStateProperty(new XunitException(failed)),
 				_ => new ErrorTestNodeStateProperty(new XunitException(failed)),
 			},
-			ITestNotRun => new SkippedTestNodeStateProperty("Not run (due to explicit test filtering)"),
+			ITestNotRun => new SkippedTestNodeStateProperty(
+				string.IsNullOrWhiteSpace(explicitExclusionReason)
+					? "Not run (due to explicit test filtering)"
+					: $"Not run (due to explicit test filtering): {explicitExclusionReason}"),
 			ITestPassed => PassedTestNodeStateProperty.CachedInstance,
 			ITestSkipped skipped => new SkippedTestNodeStateProperty(skipped.Reason),
 			ITestStarting => InProgressTestNodeStateProperty.CachedInstance,

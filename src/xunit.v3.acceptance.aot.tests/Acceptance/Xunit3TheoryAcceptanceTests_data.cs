@@ -53,6 +53,56 @@ public partial class Xunit3TheoryAcceptanceTests
 #if XUNIT_AOT
 		public
 #endif
+		class ClassUnderTest_ExplicitReasonAcceptanceTests
+		{
+			public static List<TheoryDataRow<int>> Rows =
+			[
+				new(1),
+				new(2) { Explicit = true },
+				new(3) { Explicit = false },
+			];
+
+			[Theory(ExplicitReason = "Requires release infrastructure")]
+			[MemberData(nameof(Rows))]
+			public void TestMethod(int value)
+			{
+				Assert.InRange(value, 1, 3);
+			}
+		}
+
+#if XUNIT_AOT
+		public
+#endif
+		class ClassUnderTest_ExplicitTrueReasonAcceptanceTests
+		{
+			public static List<TheoryDataRow<int>> Rows =
+			[
+				new(1),
+				new(2) { Explicit = true },
+				new(3) { Explicit = false },
+			];
+
+			[Theory(Explicit = true, ExplicitReason = "The method is explicitly opted in")]
+			[MemberData(nameof(Rows))]
+			public void TestMethod(int value)
+			{
+				Assert.InRange(value, 1, 3);
+			}
+		}
+
+#if XUNIT_AOT
+		public
+#endif
+		class ClassUnderTest_ExplicitFailureAcceptanceTests
+		{
+			[Fact(Explicit = true, ExplicitReason = "Must retain the selected failure")]
+			public void TestMethod() =>
+				Assert.Fail("Selected explicit test failed.");
+		}
+
+#if XUNIT_AOT
+		public
+#endif
 		class ClassUnderTest_LabelAcceptanceTests
 		{
 			public static TheoryDataRow<int, string>[] MemberDataSource =

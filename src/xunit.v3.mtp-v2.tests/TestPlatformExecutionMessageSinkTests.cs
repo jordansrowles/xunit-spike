@@ -356,6 +356,171 @@ public static class TestPlatformExecutionMessageSinkTests
 			}
 		}
 
+		[Fact]
+		public static void AuthoredExplicitExclusionReasonIsAddedToNotRunExplanation()
+		{
+			const string reason = "Requires a live database";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest,
+				expectedResultKind: "not-run"
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal("Not run (due to explicit test filtering): Requires a live database", skipped.Explanation);
+		}
+
+		[Fact]
+		public static void AuthoredReasonDoesNotApplyToNonExplicitTheoryRow()
+		{
+			const string reason = "Requires a live database";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: false);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest,
+				expectedResultKind: "not-run"
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal("Not run (due to explicit test filtering)", skipped.Explanation);
+		}
+
+		[Fact]
+		public static void AuthoredReasonDoesNotApplyWhenTraitHasMultipleValues()
+		{
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = ["Reason one", "Reason two"];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest,
+				expectedResultKind: "not-run"
+			);
+			AssertExplicitReasonMetadata(testNode, "Reason one", "Reason two");
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal("Not run (due to explicit test filtering)", skipped.Explanation);
+		}
+
+		[Fact]
+		public static void SingleTraitValueCanImpersonateAnAuthoredReason()
+		{
+			const string spoofedReason = "Supplied by a user trait";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [spoofedReason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(classUnderTest, expectedResultKind: "not-run");
+			AssertExplicitReasonMetadata(testNode, spoofedReason);
+			Assert.Equal(
+				$"Not run (due to explicit test filtering): {spoofedReason}",
+				testNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation
+			);
+		}
+
+		[Fact]
+		public static void AuthoredWhitespaceReasonFallsBackToGenericExplanation()
+		{
+			const string reason = " \t ";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest,
+				expectedResultKind: "not-run"
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal("Not run (due to explicit test filtering)", skipped.Explanation);
+		}
+
+		[Fact]
+		public static void AuthoredReasonDoesNotReplaceNativeSkipReason()
+		{
+			const string reason = "Requires a live database";
+			const string skipReason = "Skipped by this data row";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestSkipped(reason: skipReason));
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest,
+				expectedResultKind: "skipped"
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal(skipReason, skipped.Explanation);
+		}
+
+		[Fact]
+		public static void AuthoredReasonDoesNotAffectPass()
+		{
+			const string reason = "Requires a live database";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestPassed());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			var passed = testNode.Properties.Single<PassedTestNodeStateProperty>();
+			Assert.Null(passed.Explanation);
+		}
+
+		[Fact]
+		public static void AuthoredReasonDoesNotAffectSelectedFailure()
+		{
+			const string reason = "Requires a live database";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(pair => pair.Key, pair => pair.Value);
+			traits["xunit.explicit-reason"] = [reason];
+			SendStartingMessages(classUnderTest, traits: traits, explicitTest: true);
+
+			classUnderTest.OnMessage(TestData.TestFailed());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(
+				classUnderTest
+			);
+			AssertExplicitReasonMetadata(testNode, reason);
+			Assert.Single(testNode.Properties.OfType<FailedTestNodeStateProperty>());
+			Assert.Empty(testNode.Properties.OfType<SkippedTestNodeStateProperty>());
+		}
+
 		[Theory]
 		[InlineData(false)]
 		[InlineData(true)]
@@ -609,7 +774,8 @@ public static class TestPlatformExecutionMessageSinkTests
 			if (expectTrx)
 			{
 				// Include a 'category' trait in this metadata, for TRX testing
-				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>().Where(metadata => metadata.Key != "xunit.result-kind");
+				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>()
+					.Where(metadata => metadata.Key is not "xunit.result-kind" and not "xunit.explicit-reason");
 				Assert.Collection(
 					testMetadata.OrderBy(p => p.Key).ThenBy(p => p.Value).Select(p => $"'{p.Key}' = '{p.Value}'"),
 					keyValue => Assert.Equal("'biff' = 'bang'", keyValue),
@@ -642,7 +808,8 @@ public static class TestPlatformExecutionMessageSinkTests
 			else
 			{
 				// No 'category' trait in this metadata, we only add that for TRX testing
-				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>().Where(metadata => metadata.Key != "xunit.result-kind");
+				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>()
+					.Where(metadata => metadata.Key is not "xunit.result-kind" and not "xunit.explicit-reason");
 				Assert.Collection(
 					testMetadata.OrderBy(p => p.Key).ThenBy(p => p.Value).Select(p => $"'{p.Key}' = '{p.Value}'"),
 					keyValue => Assert.Equal("'biff' = 'bang'", keyValue),
@@ -652,6 +819,17 @@ public static class TestPlatformExecutionMessageSinkTests
 			}
 
 			return testNode;
+		}
+
+		static void AssertExplicitReasonMetadata(
+			TestNode testNode,
+			params string[] expectedReasons)
+		{
+			var actual = testNode.Properties.OfType<TestMetadataProperty>()
+				.Where(metadata => metadata.Key == "xunit.explicit-reason")
+				.Select(metadata => metadata.Value)
+				.OrderBy(value => value);
+			Assert.Equal(expectedReasons.OrderBy(value => value), actual);
 		}
 
 		static TestNode GetTestNode(TestableTestPlatformExecutionMessageSink classUnderTest)
@@ -665,7 +843,8 @@ public static class TestPlatformExecutionMessageSinkTests
 		static void SendStartingMessages(
 			TestableTestPlatformExecutionMessageSink messageSink,
 			IReadOnlyDictionary<string, IReadOnlyCollection<string>>? traits = null,
-			bool includeTestStarting = true)
+			bool includeTestStarting = true,
+			bool explicitTest = false)
 		{
 			messageSink.OnMessage(TestData.TestAssemblyStarting());
 			messageSink.OnMessage(TestData.TestCollectionStarting());
@@ -674,7 +853,7 @@ public static class TestPlatformExecutionMessageSinkTests
 			messageSink.OnMessage(TestData.TestCaseStarting(sourceFilePath: "/source/file/path.cs", sourceLineNumber: 42));
 
 			if (includeTestStarting)
-				messageSink.OnMessage(TestData.TestStarting(traits: traits ?? TestData.DefaultTraits));
+				messageSink.OnMessage(TestData.TestStarting(@explicit: explicitTest, traits: traits ?? TestData.DefaultTraits));
 
 			// Clear the published data cache of the ITestStarting translation
 			messageSink.TestNodeMessageBus.PublishedData.Clear();
