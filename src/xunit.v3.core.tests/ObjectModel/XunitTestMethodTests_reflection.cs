@@ -220,13 +220,13 @@ public class XunitTestMethodTests
 		public void ReasonWithTraitCollision() { }
 	}
 
-	class BaseExplicitReasonClassUnderTest
+	public abstract class BaseExplicitReasonClassUnderTest
 	{
 		[Fact(ExplicitReason = "Inherited method reason")]
 		public void InheritedMethod() { }
 	}
 
-	class DerivedExplicitReasonClassUnderTest : BaseExplicitReasonClassUnderTest { }
+	public class DerivedExplicitReasonClassUnderTest : BaseExplicitReasonClassUnderTest { }
 
 	sealed class DatabaseFactAttribute : FactAttribute
 	{

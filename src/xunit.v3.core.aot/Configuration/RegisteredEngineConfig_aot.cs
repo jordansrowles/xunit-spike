@@ -222,13 +222,17 @@ public static class RegisteredEngineConfig
 
 	internal static Dictionary<string, HashSet<string>>? GetTestMethodTraits(
 		Type @class,
-		string methodName)
+		string methodName,
+		string? declaredTypeIndex = null)
 	{
-		if (!testClassIndexByTypeFullName.TryGetValue(@class.SafeName(), out var testClassIndex))
-			return null;
+		if (testClassIndexByTypeFullName.TryGetValue(@class.SafeName(), out var testClassIndex) &&
+			testMethodTraits.TryGetValue((testClassIndex, methodName), out var traits))
+			return traits;
 
-		testMethodTraits.TryGetValue((testClassIndex, methodName), out var traits);
-		return traits;
+		if (declaredTypeIndex is not null && testMethodTraits.TryGetValue((declaredTypeIndex, methodName), out var declaredTraits))
+			return declaredTraits;
+
+		return null;
 	}
 
 	/// <summary>

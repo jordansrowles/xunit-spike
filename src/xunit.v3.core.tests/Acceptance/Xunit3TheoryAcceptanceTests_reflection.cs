@@ -837,18 +837,27 @@ partial class Xunit3TheoryAcceptanceTests
 			Assert.Equal("Theory", methodStarting.MethodName);
 			var methodFinished = Assert.Single(testMessages.OfType<ITestMethodFinished>());
 			Assert.Equal(methodStarting.TestMethodUniqueID, methodFinished.TestMethodUniqueID);
+
+			// Overloaded test methods are rejected at execution time, so exercise method-specific trait extraction directly
+			var overloadReasons =
+				typeof(ClassUnderTest)
+					.GetMethods()
+					.Where(method => method.Name == nameof(ClassUnderTest.Theory))
+					.Select(method => Assert.Single(ExtensibilityPointFactory.GetMethodTraits(method, testClassTraits: null)["xunit.explicit-reason"]))
+					.OrderBy(reason => reason);
+			Assert.Equal(["The integer overload is excluded", "The string overload is excluded"], overloadReasons);
 		}
 
 #pragma warning disable xUnit1024 // Test methods cannot have overloads
 
 		class ClassUnderTest
 		{
-			[Theory]
+			[Theory(Explicit = true, ExplicitReason = "The integer overload is excluded")]
 			[InlineData(42)]
 			public void Theory(int _)
 			{ }
 
-			[Theory]
+			[Theory(Explicit = true, ExplicitReason = "The string overload is excluded")]
 			[InlineData("42")]
 			public void Theory(string _)
 			{ }

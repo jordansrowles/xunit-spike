@@ -69,7 +69,7 @@ public class CodeGenTestMethodRegistration
 			if (testMethod is null)
 			{
 				IReadOnlyDictionary<string, IReadOnlyCollection<string>>? traits;
-				var testMethodTraits = RegisteredEngineConfig.GetTestMethodTraits(testClass.Class, methodName);
+				var testMethodTraits = RegisteredEngineConfig.GetTestMethodTraits(testClass.Class, methodName, DeclaredTypeIndex);
 
 				if (testMethodTraits is null || testMethodTraits.Count == 0)
 					traits = testClass.Traits;
