@@ -339,16 +339,18 @@ public static class TestPlatformExecutionMessageSinkTests
 				Assert.Empty(classUnderTest.TestNodeMessageBus.PublishedData);
 			}
 
-			[Fact]
-			public static void ServerModeFalse()
+			[Theory]
+			[InlineData(false)]
+			[InlineData(true)]
+			public static void ServerModeFalse(bool trxEnabled)
 			{
-				var classUnderTest = TestableTestPlatformExecutionMessageSink.Create(serverMode: false);
-				SendStartingMessages(classUnderTest);
+				var classUnderTest = TestableTestPlatformExecutionMessageSink.Create(serverMode: false, trxEnabled: trxEnabled);
+				SendStartingMessages(classUnderTest, traits: trxEnabled ? TestData.DefaultTraitsWithCategory : TestData.DefaultTraits);
 
 				classUnderTest.OnMessage(TestData.TestNotRun());
 				classUnderTest.OnMessage(TestData.TestFinished());
 
-				var testNode = AssertStandardMetadata(classUnderTest);
+				var testNode = AssertStandardMetadata(classUnderTest, expectTrx: trxEnabled, expectedResultKind: "not-run");
 				var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
 				Assert.Equal("Not run (due to explicit test filtering)", skipped.Explanation);
 			}
@@ -379,9 +381,85 @@ public static class TestPlatformExecutionMessageSinkTests
 			classUnderTest.OnMessage(TestData.TestSkipped());
 			classUnderTest.OnMessage(TestData.TestFinished());
 
-			var testNode = AssertStandardMetadata(classUnderTest);
+			var testNode = AssertStandardMetadata(classUnderTest, expectedResultKind: "skipped");
 			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
 			Assert.Equal(TestData.DefaultSkipReason, skipped.Explanation);
+		}
+
+		[Fact]
+		public static void NativeSkipWithExplicitFilterTextRetainsNativeResultKind()
+		{
+			const string matchingExplanation = "Not run (due to explicit test filtering)";
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create(serverMode: false);
+			SendStartingMessages(classUnderTest);
+
+			classUnderTest.OnMessage(TestData.TestSkipped(reason: matchingExplanation));
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = AssertStandardMetadata(classUnderTest, expectedResultKind: "skipped");
+			var skipped = testNode.Properties.Single<SkippedTestNodeStateProperty>();
+			Assert.Equal(matchingExplanation, skipped.Explanation);
+		}
+
+		[Fact]
+		public static void ResultKindDoesNotDuplicateCaseInsensitiveTraitKey()
+		{
+			var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+			var traits = TestData.DefaultTraits.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
+			traits["XUNIT.RESULT-KIND"] = ["consumer metadata"];
+			SendStartingMessages(classUnderTest, traits: traits);
+
+			classUnderTest.OnMessage(TestData.TestNotRun());
+			classUnderTest.OnMessage(TestData.TestFinished());
+
+			var testNode = GetTestNode(classUnderTest);
+			var resultKindProperties = testNode.Properties.OfType<TestMetadataProperty>()
+				.Where(metadata => string.Equals(metadata.Key, "xunit.result-kind", StringComparison.OrdinalIgnoreCase))
+				.ToArray();
+			Assert.Equal("XUNIT.RESULT-KIND", Assert.Single(resultKindProperties).Key);
+			Assert.Equal("consumer metadata", resultKindProperties[0].Value);
+			Assert.Equal("Not run (due to explicit test filtering)", testNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation);
+		}
+
+		[Fact]
+		public static void MtpConsumerCanDistinguishNotRunFromNativeSkipWithMatchingText()
+		{
+			const string matchingExplanation = "Not run (due to explicit test filtering)";
+			var notRunConsumer = new TestNodeUpdateConsumer();
+			var notRunSink = TestableTestPlatformExecutionMessageSink.Create(
+				testNodeMessageBus: new SpyTestPlatformMessageBus(consumer: notRunConsumer)
+			);
+			SendStartingMessages(notRunSink);
+			notRunSink.OnMessage(TestData.TestNotRun());
+			notRunSink.OnMessage(TestData.TestFinished());
+
+			var notRunUpdates = notRunConsumer.ConsumedUpdates
+				.Where(update => update.TestNode.Properties.OfType<SkippedTestNodeStateProperty>().Any())
+				.ToArray();
+			Assert.Single(notRunUpdates);
+			foreach (var update in notRunUpdates)
+			{
+				Assert.Equal("not-run", Assert.Single(update.TestNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind").Value);
+				Assert.Equal(matchingExplanation, update.TestNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation);
+			}
+
+			var skippedConsumer = new TestNodeUpdateConsumer();
+			var skippedSink = TestableTestPlatformExecutionMessageSink.Create(
+				testNodeMessageBus: new SpyTestPlatformMessageBus(consumer: skippedConsumer)
+			);
+			SendStartingMessages(skippedSink);
+			skippedSink.OnMessage(TestData.TestSkipped(reason: matchingExplanation));
+			skippedSink.OnMessage(TestData.TestFinished());
+
+			var skippedUpdates = skippedConsumer.ConsumedUpdates
+				.Where(update => update.TestNode.Properties.OfType<SkippedTestNodeStateProperty>().Any())
+				.ToArray();
+			Assert.Single(skippedUpdates);
+			foreach (var update in skippedUpdates)
+			{
+				Assert.Equal("skipped", Assert.Single(update.TestNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind").Value);
+				Assert.Equal(matchingExplanation, update.TestNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation);
+			}
 		}
 
 		[Fact]
@@ -482,11 +560,20 @@ public static class TestPlatformExecutionMessageSinkTests
 			bool expectTrx = false,
 			bool failure = false,
 			string? expectedDisplayName = null,
-			string? exceptionHeader = null)
+			string? exceptionHeader = null,
+			string? expectedResultKind = null)
 		{
 			var testNode = GetTestNode(classUnderTest);
 			Assert.Equal(TestData.DefaultTestCaseUniqueID, testNode.Uid.Value);
 			Assert.Equal(expectedDisplayName ?? TestData.DefaultTestDisplayName, testNode.DisplayName);
+
+			var resultKinds = testNode.Properties.OfType<TestMetadataProperty>()
+				.Where(metadata => metadata.Key == "xunit.result-kind")
+				.ToArray();
+			if (expectedResultKind is null)
+				Assert.Empty(resultKinds);
+			else
+				Assert.Equal(expectedResultKind, Assert.Single(resultKinds).Value);
 
 			var testMethod = testNode.Properties.Single<TestMethodIdentifierProperty>();
 			Assert.Equal(TestData.DefaultAssemblyName, testMethod.AssemblyFullName);
@@ -522,7 +609,7 @@ public static class TestPlatformExecutionMessageSinkTests
 			if (expectTrx)
 			{
 				// Include a 'category' trait in this metadata, for TRX testing
-				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>();
+				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>().Where(metadata => metadata.Key != "xunit.result-kind");
 				Assert.Collection(
 					testMetadata.OrderBy(p => p.Key).ThenBy(p => p.Value).Select(p => $"'{p.Key}' = '{p.Value}'"),
 					keyValue => Assert.Equal("'biff' = 'bang'", keyValue),
@@ -555,7 +642,7 @@ public static class TestPlatformExecutionMessageSinkTests
 			else
 			{
 				// No 'category' trait in this metadata, we only add that for TRX testing
-				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>();
+				var testMetadata = testNode.Properties.OfType<TestMetadataProperty>().Where(metadata => metadata.Key != "xunit.result-kind");
 				Assert.Collection(
 					testMetadata.OrderBy(p => p.Key).ThenBy(p => p.Value).Select(p => $"'{p.Key}' = '{p.Value}'"),
 					keyValue => Assert.Equal("'biff' = 'bang'", keyValue),
@@ -630,7 +717,8 @@ public static class TestPlatformExecutionMessageSinkTests
 			bool trxEnabled = false,
 			bool showLiveOutput = false,
 			bool serverMode = false,
-			string? resultsPath = null) =>
-				new(SpyMessageSink.Capture(), "test-assembly", new(), new(), new(trxEnabled), new(), Mocks.MicrosoftTestingPlatform.Configuration(resultsPath), showLiveOutput, serverMode);
+			string? resultsPath = null,
+			SpyTestPlatformMessageBus? testNodeMessageBus = null) =>
+				new(SpyMessageSink.Capture(), "test-assembly", new(), testNodeMessageBus ?? new(), new(trxEnabled), new(), Mocks.MicrosoftTestingPlatform.Configuration(resultsPath), showLiveOutput, serverMode);
 	}
 }

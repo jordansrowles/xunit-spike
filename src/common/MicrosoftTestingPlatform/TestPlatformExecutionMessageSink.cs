@@ -365,6 +365,17 @@ public class TestPlatformExecutionMessageSink(
 		if (nodeState is not null)
 			result.Properties.Add(nodeState);
 
+		// MTP currently represents both xUnit not-run and skipped events as skipped.
+		// Retain the original xUnit result kind so consumers can distinguish them
+		// even when a native skip reason equals the explicit-filtering explanation.
+		// Preserve a user trait with the same key rather than publishing ambiguous duplicate metadata.
+		var resultKindTraitExists = testStarting?.Traits.Keys.Any(key => string.Equals(key, "xunit.result-kind", StringComparison.OrdinalIgnoreCase)) == true;
+		if (!resultKindTraitExists)
+			if (testMessage is ITestNotRun)
+				result.Properties.Add(new TestMetadataProperty("xunit.result-kind", "not-run"));
+			else if (testMessage is ITestSkipped)
+				result.Properties.Add(new TestMetadataProperty("xunit.result-kind", "skipped"));
+
 		var testResult = testMessage as ITestResultMessage;
 		if (testStarting is not null && testResult is not null)
 		{

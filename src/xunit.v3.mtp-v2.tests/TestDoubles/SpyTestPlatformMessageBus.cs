@@ -1,9 +1,10 @@
+using Microsoft.Testing.Platform.Extensions;
 using Microsoft.Testing.Platform.Extensions.Messages;
 using Microsoft.Testing.Platform.Messages;
 using Microsoft.Testing.Platform.TestHost;
 using Xunit;
 
-public class SpyTestPlatformMessageBus(bool validateSessionUid = false) :
+public class SpyTestPlatformMessageBus(bool validateSessionUid = false, IDataConsumer? consumer = null) :
 	IMessageBus
 {
 	public List<IData> PublishedData { get; } = [];
@@ -16,7 +17,7 @@ public class SpyTestPlatformMessageBus(bool validateSessionUid = false) :
 		SessionUid = null;
 	}
 
-	public Task PublishAsync(
+	public async Task PublishAsync(
 		IDataProducer dataProducer,
 		IData data)
 	{
@@ -32,6 +33,8 @@ public class SpyTestPlatformMessageBus(bool validateSessionUid = false) :
 		}
 
 		PublishedData.Add(data);
-		return Task.CompletedTask;
+
+		if (consumer is not null && consumer.DataTypesConsumed.Any(type => type.IsAssignableFrom(data.GetType())))
+			await consumer.ConsumeAsync(dataProducer, data, CancellationToken.None);
 	}
 }
