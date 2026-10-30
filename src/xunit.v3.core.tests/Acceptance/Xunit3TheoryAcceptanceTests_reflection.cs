@@ -837,6 +837,10 @@ partial class Xunit3TheoryAcceptanceTests
 			Assert.Equal("Theory", methodStarting.MethodName);
 			var methodFinished = Assert.Single(testMessages.OfType<ITestMethodFinished>());
 			Assert.Equal(methodStarting.TestMethodUniqueID, methodFinished.TestMethodUniqueID);
+			var expectedOverloadError = $"Test method {typeof(ClassUnderTest).SafeName()}.Theory has overloads, which is not supported. See xUnit1024 for more information. https://xunit.net/xunit.analyzers/rules/xUnit1024";
+			var overloadFailures = testMessages.OfType<ITestFailed>().ToArray();
+			Assert.NotEmpty(overloadFailures);
+			Assert.All(overloadFailures, failure => Assert.Equal(expectedOverloadError, Assert.Single(failure.Messages)));
 
 			// Overloaded test methods are rejected at execution time, so exercise method-specific trait extraction directly
 			var overloadReasons =
@@ -846,6 +850,23 @@ partial class Xunit3TheoryAcceptanceTests
 					.Select(method => Assert.Single(ExtensibilityPointFactory.GetMethodTraits(method, testClassTraits: null)["xunit.explicit-reason"]))
 					.OrderBy(reason => reason);
 			Assert.Equal(["The integer overload is excluded", "The string overload is excluded"], overloadReasons);
+
+			static async ValueTask<IXunitTestCase[]> DiscoverTestCases(Type testClass) =>
+				(await DiscoverAsync(testClass))
+					.Select(serialized => Assert.IsType<IXunitTestCase>(SerializationHelper.Instance.Deserialize(serialized), exactMatch: false))
+				.ToArray();
+
+			var firstOverloadTestCases = await DiscoverTestCases(typeof(ClassUnderTest));
+			Assert.Equal(2, firstOverloadTestCases.Length);
+
+			var firstSupportedTestCase = Assert.Single(await DiscoverTestCases(typeof(SupportedClassUnderTest)));
+			var secondSupportedTestCase = Assert.Single(await DiscoverTestCases(typeof(SupportedClassUnderTest)));
+			var supportedTestMethod = Assert.IsType<IXunitTestMethod>(firstSupportedTestCase.TestMethod, exactMatch: false);
+			var supportedXunitTestCase = Assert.IsType<XunitTestCase>(firstSupportedTestCase, exactMatch: false);
+			Assert.Equal(supportedTestMethod.UniqueID, UniqueIDGenerator.ForTestMethod(supportedTestMethod.TestClass.UniqueID, supportedTestMethod.MethodName));
+			Assert.Equal(firstSupportedTestCase.UniqueID, UniqueIDGenerator.ForTestCase(supportedTestMethod.UniqueID, testMethodGenericTypes: null, testMethodArguments: supportedXunitTestCase.TestMethodArguments));
+			Assert.Equal(firstSupportedTestCase.UniqueID, secondSupportedTestCase.UniqueID);
+			Assert.Equal(supportedTestMethod.UniqueID, Assert.IsType<IXunitTestMethod>(secondSupportedTestCase.TestMethod, exactMatch: false).UniqueID);
 		}
 
 #pragma warning disable xUnit1024 // Test methods cannot have overloads
@@ -860,6 +881,14 @@ partial class Xunit3TheoryAcceptanceTests
 			[Theory(Explicit = true, ExplicitReason = "The string overload is excluded")]
 			[InlineData("42")]
 			public void Theory(string _)
+			{ }
+		}
+
+		class SupportedClassUnderTest
+		{
+			[Theory(Explicit = true, ExplicitReason = "Supported method reason")]
+			[InlineData(42)]
+			public void Theory(int _)
 			{ }
 		}
 
