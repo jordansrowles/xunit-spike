@@ -98,6 +98,16 @@ public static class TestPlatformTestFrameworkTests
 		}
 	}
 
+	public static class ExplicitReasonSample
+	{
+		public const string Reason = "Requires an external service";
+		public static int InvocationCount;
+
+		[Fact(Explicit = true, ExplicitReason = Reason)]
+		public static void ExplicitTest() =>
+			InvocationCount++;
+	}
+
 	[Collection(nameof(EnvironmentHelper.NullifyEnvironmentalReporters))]
 	public sealed class DiscoveryAndExecution : IDisposable
 	{
@@ -239,6 +249,31 @@ public static class TestPlatformTestFrameworkTests
 			);
 			Assert.NotNull(messageBus.SessionUid);
 			Assert.Equal("abc", messageBus.SessionUid.Value.Value);
+		}
+
+		[Fact]
+		public async ValueTask ExplicitReasonIsObservedByDataConsumerThroughFrameworkPipeline()
+		{
+			ExplicitReasonSample.InvocationCount = 0;
+			var uid = new SessionUid("explicit-reason");
+			var consumer = new TestNodeUpdateConsumer();
+			var messageBus = new SpyTestPlatformMessageBus(consumer: consumer);
+			var framework = TestableTestPlatformTestFramework.Create();
+			framework.ProjectAssembly.Configuration.ExplicitOption = ExplicitOption.Off;
+			framework.ProjectAssembly.Configuration.Filters.AddIncludedClassFilter(typeof(ExplicitReasonSample).FullName!);
+			await framework.CreateTestSession(uid);
+
+			await framework.OnDiscover(uid, filter: null, messageBus, () => { }, CancellationToken.None);
+
+			var discovered = Assert.Single(consumer.ConsumedUpdates);
+			consumer.ConsumedUpdates.Clear();
+
+			await framework.OnExecute(uid, new TestNodeUidListFilter([discovered.TestNode.Uid]), messageBus, () => { }, CancellationToken.None);
+
+			var notRun = Assert.Single(consumer.ConsumedUpdates, update => update.TestNode.Properties.OfType<SkippedTestNodeStateProperty>().Any());
+			Assert.Equal("not-run", Assert.Single(notRun.TestNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind").Value);
+			Assert.Equal($"Not run (due to explicit test filtering): {ExplicitReasonSample.Reason}", notRun.TestNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation);
+			Assert.Equal(0, ExplicitReasonSample.InvocationCount);
 		}
 
 		[Fact]
