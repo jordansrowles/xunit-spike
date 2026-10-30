@@ -339,6 +339,50 @@ public static class TestPlatformExecutionMessageSinkTests
 				Assert.Empty(classUnderTest.TestNodeMessageBus.PublishedData);
 			}
 
+			[Fact]
+			public static void RepeatedNotRunUpdatesProduceOneFinalResultKind()
+			{
+				var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+				SendStartingMessages(classUnderTest);
+
+				classUnderTest.OnMessage(TestData.TestNotRun());
+				classUnderTest.OnMessage(TestData.TestNotRun());
+				classUnderTest.OnMessage(TestData.TestFinished());
+
+				var testNode = AssertStandardMetadata(classUnderTest, expectedResultKind: "not-run");
+				Assert.Single(testNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind");
+			}
+
+			[Fact]
+			public static void WithoutTestStartingMetadata()
+			{
+				var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+				classUnderTest.OnMessage(TestData.TestNotRun());
+				classUnderTest.OnMessage(TestData.TestFinished());
+
+				var update = Assert.IsType<TestNodeUpdateMessage>(Assert.Single(classUnderTest.TestNodeMessageBus.PublishedData));
+				Assert.Equal(TestData.DefaultTestCaseUniqueID, update.TestNode.Uid.Value);
+				Assert.Equal("<unknown test display name>", update.TestNode.DisplayName);
+				Assert.Equal("not-run", Assert.Single(update.TestNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind").Value);
+				Assert.Equal("Not run (due to explicit test filtering)", update.TestNode.Properties.Single<SkippedTestNodeStateProperty>().Explanation);
+				Assert.Empty(update.TestNode.Properties.OfType<TestMethodIdentifierProperty>());
+				Assert.Empty(update.TestNode.Properties.OfType<TestFileLocationProperty>());
+				Assert.Empty(update.TestNode.Properties.OfType<TimingProperty>());
+			}
+
+			[Fact]
+			public static void CancellationWithoutResultLeavesOnlyInProgressUpdate()
+			{
+				// A cancelled xUnit test emits ITestStarting and ITestFinished without a result message.
+				var classUnderTest = TestableTestPlatformExecutionMessageSink.Create();
+				classUnderTest.OnMessage(TestData.TestStarting());
+				classUnderTest.OnMessage(TestData.TestFinished());
+
+				var update = Assert.IsType<TestNodeUpdateMessage>(Assert.Single(classUnderTest.TestNodeMessageBus.PublishedData));
+				Assert.Single(update.TestNode.Properties.OfType<InProgressTestNodeStateProperty>());
+				Assert.DoesNotContain(update.TestNode.Properties.OfType<TestMetadataProperty>(), metadata => metadata.Key == "xunit.result-kind");
+			}
+
 			[Theory]
 			[InlineData(false)]
 			[InlineData(true)]
